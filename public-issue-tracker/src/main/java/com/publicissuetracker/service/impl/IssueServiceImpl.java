@@ -3,7 +3,9 @@ package com.publicissuetracker.service.impl;
 import com.publicissuetracker.dto.IssueCreateRequest;
 import com.publicissuetracker.dto.IssueResponse;
 import com.publicissuetracker.model.Issue;
+import com.publicissuetracker.model.IssueEvent;
 import com.publicissuetracker.model.User;
+import com.publicissuetracker.repository.IssueEventRepository;
 import com.publicissuetracker.repository.IssueRepository;
 import com.publicissuetracker.repository.UserRepository;
 import com.publicissuetracker.service.IssueService;
@@ -21,10 +23,15 @@ public class IssueServiceImpl implements IssueService {
 
     private final IssueRepository issueRepository;
     private final UserRepository userRepository;
+    private final IssueEventRepository issueEventRepository;
 
-    public IssueServiceImpl(IssueRepository issueRepository, UserRepository userRepository) {
+    // NOTE: add IssueEventRepository to constructor so Spring can autowire it
+    public IssueServiceImpl(IssueRepository issueRepository,
+                            UserRepository userRepository,
+                            IssueEventRepository issueEventRepository) {
         this.issueRepository = issueRepository;
         this.userRepository = userRepository;
+        this.issueEventRepository = issueEventRepository;
     }
 
     @Override
@@ -39,6 +46,15 @@ public class IssueServiceImpl implements IssueService {
                 createdBy
         );
         Issue saved = issueRepository.save(issue);
+
+        // create an initial event for creation (optional)
+        IssueEvent ev = new IssueEvent();
+        ev.setIssueId(saved.getId());
+        ev.setType("CREATED");
+        ev.setActorId(createdBy != null ? createdBy.getId() : null);
+        ev.setNote("Issue created");
+        issueEventRepository.save(ev);
+
         return toResponse(saved);
     }
 
@@ -59,6 +75,9 @@ public class IssueServiceImpl implements IssueService {
     @Override
     public Optional<IssueResponse> updateStatus(String issueId, String newStatus, User actingUser) {
         return issueRepository.findById(issueId).map(issue -> {
+            // capture previous status before changing
+            String previousStatus = issue.getStatus();
+
             issue.setStatus(newStatus);
 
             if ("RESOLVED".equalsIgnoreCase(newStatus)) {
@@ -67,8 +86,20 @@ public class IssueServiceImpl implements IssueService {
             if ("VERIFIED".equalsIgnoreCase(newStatus)) {
                 issue.setVerifiedAt(Instant.now());
             }
+            issue.setUpdatedAt(Instant.now());
 
             Issue updated = issueRepository.save(issue);
+
+            // persist an IssueEvent for this status change
+            IssueEvent ev = new IssueEvent();
+            ev.setIssueId(issue.getId());
+            ev.setType("STATUS_CHANGE");
+            ev.setActorId(actingUser != null ? actingUser.getId() : null);
+            ev.setFromStatus(previousStatus);
+            ev.setToStatus(newStatus);
+            ev.setNote(null);
+            issueEventRepository.save(ev);
+
             return toResponse(updated);
         });
     }
@@ -97,7 +128,16 @@ public class IssueServiceImpl implements IssueService {
             issue.setUpdatedAt(Instant.now());
             Issue updated = issueRepository.save(issue);
 
-            // NOTE: consider saving an IssueEvent here to capture assignment in timeline.
+            // create IssueEvent of type ASSIGNMENT
+            IssueEvent ev = new IssueEvent();
+            ev.setIssueId(issue.getId());
+            ev.setType("ASSIGNMENT");
+            ev.setActorId(actingUser != null ? actingUser.getId() : null);
+            ev.setFromStatus(issue.getStatus()); // note: this is the current status
+            ev.setToStatus(issue.getStatus());
+            ev.setNote("Assigned to user: " + assignee.getId());
+            issueEventRepository.save(ev);
+
             return toResponse(updated);
         });
     }

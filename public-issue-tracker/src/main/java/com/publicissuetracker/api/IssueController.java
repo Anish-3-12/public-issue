@@ -1,9 +1,15 @@
 package com.publicissuetracker.api;
 
+import com.publicissuetracker.dto.CommentCreateRequest;
+import com.publicissuetracker.dto.CommentResponse;
+import com.publicissuetracker.dto.EventResponse;
 import com.publicissuetracker.dto.IssueCreateRequest;
 import com.publicissuetracker.dto.IssueResponse;
+import com.publicissuetracker.model.IssueEvent;
 import com.publicissuetracker.model.User;
+import com.publicissuetracker.repository.IssueEventRepository;
 import com.publicissuetracker.repository.UserRepository;
+import com.publicissuetracker.service.CommentService;
 import com.publicissuetracker.service.IssueService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -13,13 +19,14 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
- * IssueController - handles creating/listing/getting issues.
+ * IssueController - handles creating/listing/getting issues,
+ * adding/listing comments, and listing timeline events.
  *
- * Important:
- * - Admin-only operations (assigning and status updates) are protected with @PreAuthorize.
- * - We still fetch the authenticated principal from SecurityContextHolder to get the current User object.
+ * Admin-only operations (assigning and status updates) are protected with @PreAuthorize("hasRole('ADMIN')").
  */
 @RestController
 @RequestMapping("/api/v1/issues")
@@ -27,10 +34,17 @@ public class IssueController {
 
     private final IssueService issueService;
     private final UserRepository userRepository;
+    private final CommentService commentService;
+    private final IssueEventRepository issueEventRepository;
 
-    public IssueController(IssueService issueService, UserRepository userRepository) {
+    public IssueController(IssueService issueService,
+                           UserRepository userRepository,
+                           CommentService commentService,
+                           IssueEventRepository issueEventRepository) {
         this.issueService = issueService;
         this.userRepository = userRepository;
+        this.commentService = commentService;
+        this.issueEventRepository = issueEventRepository;
     }
 
     /**
@@ -39,7 +53,6 @@ public class IssueController {
      */
     @PostMapping
     public ResponseEntity<IssueResponse> createIssue(@Valid @RequestBody IssueCreateRequest req) {
-        // Get authenticated principal
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         if (!(principal instanceof User)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -72,8 +85,6 @@ public class IssueController {
      *
      * Example call:
      * PATCH /api/v1/issues/{id}/status?status=RESOLVED
-     *
-     * Only users with ADMIN role can call this (enforced by PreAuthorize).
      */
     @PreAuthorize("hasRole('ADMIN')")
     @PatchMapping("/{id}/status")
@@ -81,7 +92,6 @@ public class IssueController {
             @PathVariable String id,
             @RequestParam String status
     ) {
-        // acting user from SecurityContext
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         if (!(principal instanceof User)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -105,19 +115,16 @@ public class IssueController {
             @PathVariable String id,
             @RequestBody AssignRequest req
     ) {
-        // acting user from SecurityContext
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         if (!(principal instanceof User)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
         User acting = (User) principal;
 
-        // Basic validation for request payload
         if (req == null || req.getAssignedToId() == null || req.getAssignedToId().isBlank()) {
             return ResponseEntity.badRequest().build();
         }
 
-        // Optionally verify the assigned-to user exists (helps early error)
         if (!userRepository.findById(req.getAssignedToId()).isPresent()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
         }
@@ -125,6 +132,63 @@ public class IssueController {
         return issueService.assign(id, req.getAssignedToId(), acting)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    // -------------------- Comments & Events --------------------
+
+    /**
+     * Add a comment to an issue (authenticated users).
+     *
+     * POST /api/v1/issues/{id}/comments
+     */
+    @PostMapping("/{id}/comments")
+    public ResponseEntity<CommentResponse> addComment(
+            @PathVariable("id") String issueId,
+            @Valid @RequestBody CommentCreateRequest req
+    ) {
+        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        if (!(principal instanceof User)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        User author = (User) principal;
+
+        CommentResponse created = commentService.createComment(issueId, req, author);
+        // ensure author name present in response
+        created.authorName = author.getName();
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    /**
+     * List comments for an issue.
+     *
+     * GET /api/v1/issues/{id}/comments
+     */
+    @GetMapping("/{id}/comments")
+    public ResponseEntity<List<CommentResponse>> listComments(@PathVariable("id") String issueId) {
+        return ResponseEntity.ok(commentService.listComments(issueId));
+    }
+
+    /**
+     * List events (timeline) for an issue.
+     *
+     * GET /api/v1/issues/{id}/events
+     */
+    @GetMapping("/{id}/events")
+    public ResponseEntity<List<EventResponse>> listEvents(@PathVariable("id") String issueId) {
+        List<IssueEvent> events = issueEventRepository.findByIssueIdOrderByCreatedAtAsc(issueId);
+        List<EventResponse> resp = events.stream().map(e -> {
+            EventResponse er = new EventResponse();
+            er.id = e.getId();
+            er.issueId = e.getIssueId();
+            er.type = e.getType();
+            er.actorId = e.getActorId();
+            er.fromStatus = e.getFromStatus();
+            er.toStatus = e.getToStatus();
+            er.note = e.getNote();
+            er.createdAt = e.getCreatedAt();
+            return er;
+        }).collect(Collectors.toList());
+        return ResponseEntity.ok(resp);
     }
 
     /**
