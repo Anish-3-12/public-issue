@@ -34,7 +34,13 @@ public interface IssueService {
     Optional<IssueResponse> updateStatus(String issueId, String newStatus, User actingUser);
 
     /**
-     * Assign an issue to an admin.
+     * Assign an issue to another user (usually by an admin).
+     *
+     * @param issueId ID of the issue to assign
+     * @param assignedToUserId ID of the user the issue will be assigned to
+     * @param actingUser the admin performing the assignment
+     * @return updated IssueResponse, if found
      */
-    Optional<IssueResponse> assignIssue(String issueId, User adminUser);
+    Optional<IssueResponse> assign(String issueId, String assignedToUserId, User actingUser);
 }
+

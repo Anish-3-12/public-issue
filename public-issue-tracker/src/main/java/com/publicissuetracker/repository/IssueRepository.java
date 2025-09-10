@@ -17,6 +17,9 @@ public interface IssueRepository extends JpaRepository<Issue, String> {
     // find issues by status
     List<Issue> findByStatus(String status);
 
+    long countByStatus(String status);
+
+
     // later we can add filters like category, location, etc.
 }
 

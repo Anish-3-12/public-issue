@@ -5,6 +5,7 @@ import com.publicissuetracker.dto.IssueResponse;
 import com.publicissuetracker.model.Issue;
 import com.publicissuetracker.model.User;
 import com.publicissuetracker.repository.IssueRepository;
+import com.publicissuetracker.repository.UserRepository;
 import com.publicissuetracker.service.IssueService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,9 +20,11 @@ import java.util.stream.Collectors;
 public class IssueServiceImpl implements IssueService {
 
     private final IssueRepository issueRepository;
+    private final UserRepository userRepository;
 
-    public IssueServiceImpl(IssueRepository issueRepository) {
+    public IssueServiceImpl(IssueRepository issueRepository, UserRepository userRepository) {
         this.issueRepository = issueRepository;
+        this.userRepository = userRepository;
     }
 
     @Override
@@ -70,11 +73,31 @@ public class IssueServiceImpl implements IssueService {
         });
     }
 
+    /**
+     * Assign an issue to another user (admin performing the assignment).
+     *
+     * @param issueId ID of the issue to assign
+     * @param assignedToUserId ID of the user that will be assigned
+     * @param actingUser the admin performing the assignment
+     * @return Optional containing updated IssueResponse if assignment succeeded
+     */
     @Override
-    public Optional<IssueResponse> assignIssue(String issueId, User adminUser) {
+    public Optional<IssueResponse> assign(String issueId, String assignedToUserId, User actingUser) {
+        // find the assignee user
+        Optional<User> assigneeOpt = userRepository.findById(assignedToUserId);
+        if (!assigneeOpt.isPresent()) {
+            // assignee not found -> cannot assign
+            return Optional.empty();
+        }
+        User assignee = assigneeOpt.get();
+
+        // find issue and set assignee
         return issueRepository.findById(issueId).map(issue -> {
-            issue.setAssignedTo(adminUser);
+            issue.setAssignedTo(assignee);
+            issue.setUpdatedAt(Instant.now());
             Issue updated = issueRepository.save(issue);
+
+            // NOTE: consider saving an IssueEvent here to capture assignment in timeline.
             return toResponse(updated);
         });
     }
