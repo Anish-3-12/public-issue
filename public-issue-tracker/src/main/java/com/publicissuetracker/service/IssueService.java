@@ -3,6 +3,7 @@ package com.publicissuetracker.service;
 import com.publicissuetracker.dto.IssueCreateRequest;
 import com.publicissuetracker.dto.IssueResponse;
 import com.publicissuetracker.model.User;
+import com.publicissuetracker.dto.IssueResponse;
 
 import java.util.List;
 import java.util.Optional;
@@ -42,5 +43,7 @@ public interface IssueService {
      * @return updated IssueResponse, if found
      */
     Optional<IssueResponse> assign(String issueId, String assignedToUserId, User actingUser);
+
+    List<IssueResponse> listIssuesByReporterId(String reporterId);
 }
 

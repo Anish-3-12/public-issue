@@ -3,21 +3,6 @@ import React, { useEffect, useState } from 'react';
 
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8080/api/v1';
 
-function decodeToken(t) {
-  if (!t) return null;
-  try {
-    const parts = t.split('.');
-    if (parts.length < 2) return null;
-    const payload = parts[1];
-    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = base64 + '==='.slice((base64.length + 3) % 4);
-    const json = atob(padded);
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
-}
-
 function statusColor(status) {
   switch ((status || '').toUpperCase()) {
     case 'OPEN': return '#d9534f';
@@ -28,55 +13,88 @@ function statusColor(status) {
   }
 }
 
+function formatCreatedAt(val) {
+  if (!val) return '';
+  // try common field shapes
+  const d = new Date(val);
+  if (!isNaN(d.getTime())) return d.toLocaleString();
+  // fallback to raw
+  return String(val);
+}
+
 export default function MyIssues() {
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const token = localStorage.getItem('pit_token') || '';
 
-  // try to get user id or email from token payload
-  const payload = decodeToken(token);
-  const myId = payload?.user?.id || payload?.sub || payload?.id || payload?.userId || null;
-  const myEmail = payload?.email || payload?.user?.email || null;
-
   useEffect(() => {
-    fetchMyIssues();
+    // only fetch if token exists
+    if (token) fetchMyIssues();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [token]);
 
   async function fetchMyIssues() {
-    setLoading(true); setError('');
+    setLoading(true);
+    setError('');
     try {
-      const res = await fetch(`${API_BASE}/issues`, {
-        headers: { Authorization: token ? `Bearer ${token}` : undefined },
+      if (!token) {
+        setIssues([]);
+        setError('No auth token found — please log in.');
+        return;
+      }
+
+      const res = await fetch(`${API_BASE}/me/issues`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+
+      if (res.status === 401 || res.status === 403) {
+        setIssues([]);
+        setError('Unauthorized. Please log in again.');
+        return;
+      }
+
+      if (!res.ok) {
+        // try to parse error body if available
+        let body = '';
+        try { body = await res.text(); } catch {}
+        throw new Error(`Server returned ${res.status} ${res.statusText} ${body ? '- ' + body : ''}`);
+      }
+
       const data = await res.json();
-      // attempt best-effort filter: reporterId, reporterEmail or reporterName match
-      const mine = data.filter(issue => {
-        if (!issue) return false;
-        if (myId && (issue.reporterId === myId || issue.reporterId === String(myId))) return true;
-        if (myEmail && (issue.reporterEmail === myEmail || issue.reporterEmail?.toLowerCase() === myEmail?.toLowerCase())) return true;
-        // fallback: if issue has a 'reporter' object
-        if (issue.reporter && (issue.reporter.id === myId || issue.reporter.email === myEmail)) return true;
-        return false;
-      });
-      setIssues(mine);
+      if (!Array.isArray(data)) {
+        throw new Error('Unexpected response from server');
+      }
+      setIssues(data);
     } catch (e) {
+      setIssues([]);
       setError(String(e));
     } finally {
       setLoading(false);
     }
   }
 
-  if (loading) return <div>Loading your issues...</div>;
-  if (error) return <div style={{ color: 'red' }}>Error: {error}</div>;
-  if (!token) return <div>Please log in to view your issues.</div>;
+  if (!token) return <div style={{ padding: 12 }}>Please log in to view your issues.</div>;
+  if (loading) return <div style={{ padding: 12 }}>Loading your issues...</div>;
 
   return (
     <div style={{ padding: 12 }}>
       <h2>My Issues</h2>
-      {issues.length === 0 ? (
+
+      <div style={{ marginBottom: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button onClick={fetchMyIssues}>Refresh</button>
+        <span style={{ color: '#666', fontSize: 13 }}>{issues.length} issue(s)</span>
+      </div>
+
+      {error && (
+        <div style={{ color: 'red', marginBottom: 10 }}>
+          Error: {error}
+        </div>
+      )}
+
+      {issues.length === 0 && !error ? (
         <div>No issues found for your account.</div>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -90,9 +108,9 @@ export default function MyIssues() {
           </thead>
           <tbody>
             {issues.map(issue => (
-              <tr key={issue.id}>
+              <tr key={issue.id || (issue.id === 0 ? 0 : Math.random())}>
                 <td style={cellStyle}>{issue.title}</td>
-                <td style={cellStyle}>{issue.createdAt || issue.created_at || issue.created || ''}</td>
+                <td style={cellStyle}>{formatCreatedAt(issue.createdAt || issue.created_at || issue.created)}</td>
                 <td style={cellStyle}>
                   <span style={{
                     background: statusColor(issue.status),
@@ -105,7 +123,9 @@ export default function MyIssues() {
                     textAlign: 'center'
                   }}>{issue.status}</span>
                 </td>
-                <td style={cellStyle}>{issue.latitude ?? issue.lat}, {issue.longitude ?? issue.lng}</td>
+                <td style={cellStyle}>
+                  {issue.latitude ?? issue.lat ?? ''}{(issue.latitude || issue.lat) && ','} {issue.longitude ?? issue.lng ?? ''}
+                </td>
               </tr>
             ))}
           </tbody>

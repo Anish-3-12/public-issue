@@ -142,6 +142,19 @@ public class IssueServiceImpl implements IssueService {
         });
     }
 
+    /**
+     * Return issues reported by a specific reporter (reporterId).
+     * Uses IssueRepository.findByReporterIdOrderByCreatedAtDesc(...)
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<IssueResponse> listIssuesByReporterId(String reporterId) {
+        List<Issue> issues = issueRepository.findByReporterIdOrderByCreatedAtDesc(reporterId);
+        return issues.stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
     // --- helper method ---
     private IssueResponse toResponse(Issue i) {
         IssueResponse r = new IssueResponse();
@@ -172,3 +185,4 @@ public class IssueServiceImpl implements IssueService {
         return r;
     }
 }
+

@@ -5,12 +5,13 @@ import CreateIssueForm from './CreateIssueForm';
 import Login from './Login';
 import Signup from './Signup';
 import AdminDashboard from './AdminDashboard';
+import MyIssues from './MyIssues'; // <-- import
 
 function App() {
   const [pickedLocation, setPickedLocation] = useState(null);
   const [token, setToken] = useState('');
   const [showSignup, setShowSignup] = useState(false);
-  const [view, setView] = useState('map');
+  const [view, setView] = useState('map'); // 'map' | 'admin' | 'my'
 
   useEffect(() => {
     const t = localStorage.getItem('pit_token') || '';
@@ -63,17 +64,11 @@ function App() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <strong style={{ color: 'green' }}>Logged in</strong>
 
-            {/* Only show role if ADMIN */}
             {isAdmin && (
-              <div
-                style={{
-                  fontSize: 13,
-                  color: 'white',
-                  background: 'green',
-                  padding: '2px 6px',
-                  borderRadius: 4,
-                }}
-              >
+              <div style={{
+                fontSize: 13, color: 'white', background: 'green',
+                padding: '2px 6px', borderRadius: 4
+              }}>
                 role: ADMIN
               </div>
             )}
@@ -82,11 +77,11 @@ function App() {
 
             <div style={{ marginLeft: 12 }}>
               <button onClick={() => setView('map')}>Map / Create Issue</button>
+              <button onClick={() => setView('my')} style={{ marginLeft: 8 }}>
+                My Issues
+              </button>
               {isAdmin && (
-                <button
-                  onClick={() => setView('admin')}
-                  style={{ marginLeft: 8 }}
-                >
+                <button onClick={() => setView('admin')} style={{ marginLeft: 8 }}>
                   Open Admin Dashboard
                 </button>
               )}
@@ -100,8 +95,7 @@ function App() {
                   <h4 style={{ margin: '4px 0' }}>Create an account</h4>
                   <Signup onSignedUp={handleSignedUp} />
                   <p style={{ fontSize: 13 }}>
-                    Already have an account?{' '}
-                    <button onClick={() => setShowSignup(false)}>Login</button>
+                    Already have an account? <button onClick={() => setShowSignup(false)}>Login</button>
                   </p>
                 </>
               ) : (
@@ -109,8 +103,7 @@ function App() {
                   <h4 style={{ margin: '4px 0' }}>Login</h4>
                   <Login onLogin={handleLogin} />
                   <p style={{ fontSize: 13 }}>
-                    New here?{' '}
-                    <button onClick={() => setShowSignup(true)}>Sign up</button>
+                    New here? <button onClick={() => setShowSignup(true)}>Sign up</button>
                   </p>
                 </>
               )}
@@ -119,6 +112,7 @@ function App() {
         )}
       </div>
 
+      {/* Main content */}
       {view === 'admin' ? (
         <div>
           <div style={{ marginBottom: 12 }}>
@@ -126,12 +120,13 @@ function App() {
           </div>
           <AdminDashboard />
         </div>
+      ) : view === 'my' ? (
+        <MyIssues />
       ) : (
         <div style={{ display: 'flex', gap: 20 }}>
           <div style={{ flex: 2 }}>
             <MapView onPickLocation={setPickedLocation} />
           </div>
-
           <div style={{ flex: 1 }}>
             <h3>Create Issue</h3>
             <p style={{ fontSize: 12 }}>
