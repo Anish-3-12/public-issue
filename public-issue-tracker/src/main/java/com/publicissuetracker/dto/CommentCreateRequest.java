@@ -1,13 +1,30 @@
 package com.publicissuetracker.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.NotBlank;
 
+/**
+ * Accepts either JSON { "text": "..." } (preferred) or { "message": "..." } (legacy).
+ */
 public class CommentCreateRequest {
-    @NotBlank
-    public String message;
 
-    // optional: default ctor / getters/setters if you prefer
+    @NotBlank(message = "text must not be blank")
+    @JsonAlias({ "message", "text" })
+    public String text;
+
     public CommentCreateRequest() {}
-    public CommentCreateRequest(String message) { this.message = message; }
+
+    public CommentCreateRequest(String text) {
+        this.text = text;
+    }
+
+    // Jackson-friendly getters/setters
+    public String getText() {
+        return text;
+    }
+
+    public void setText(String text) {
+        this.text = text;
+    }
 }
 

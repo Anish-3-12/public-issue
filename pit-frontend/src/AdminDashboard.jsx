@@ -5,6 +5,7 @@ const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8080/api/v1
 
 export default function AdminDashboard() {
   const [issues, setIssues] = useState([]);
+  const [commentsByIssue, setCommentsByIssue] = useState({}); // { [issueId]: [comment, ...] }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -12,6 +13,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     fetchIssues();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function fetchIssues() {
@@ -24,10 +26,33 @@ export default function AdminDashboard() {
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const data = await res.json();
       setIssues(data);
+
+      // fetch comments for each issue in background (concurrently)
+      data.forEach(issue => {
+        fetchComments(issue.id);
+      });
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  // fetch and store comments for a single issue
+  async function fetchComments(issueId) {
+    try {
+      const res = await fetch(`${API_BASE}/issues/${issueId}/comments`, {
+        headers: { Authorization: token ? `Bearer ${token}` : undefined },
+      });
+      if (!res.ok) {
+        // don't throw — treat missing comments as empty
+        setCommentsByIssue(prev => ({ ...prev, [issueId]: [] }));
+        return;
+      }
+      const data = await res.json();
+      setCommentsByIssue(prev => ({ ...prev, [issueId]: data }));
+    } catch (e) {
+      setCommentsByIssue(prev => ({ ...prev, [issueId]: [] }));
     }
   }
 
@@ -43,17 +68,25 @@ export default function AdminDashboard() {
           },
         }
       );
-      if (!res.ok) throw new Error(`Status change failed: ${res.status}`);
+      if (!res.ok) {
+        let body = '';
+        try { body = await res.text(); } catch {}
+        throw new Error(`Status change failed: ${res.status}${body ? ' — ' + body : ''}`);
+      }
       await res.json();
-      // reload issues automatically
+      // reload issues to get updated statuses
       fetchIssues();
     } catch (e) {
-      alert('Error changing status: ' + e);
+      alert('Error changing status: ' + e.message);
     }
   }
 
+  // improved addComment: appends new comment to local map on success
   async function addComment(issueId, text) {
-    if (!text || text.trim() === '') return;
+    if (!text || text.trim() === '') {
+      alert('Please type a comment before sending.');
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/issues/${issueId}/comments`, {
         method: 'POST',
@@ -61,13 +94,29 @@ export default function AdminDashboard() {
           'Content-Type': 'application/json',
           Authorization: token ? `Bearer ${token}` : undefined,
         },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text }), // backend expects "text"
       });
-      if (!res.ok) throw new Error(`Add comment failed: ${res.status}`);
-      await res.json();
+
+      if (!res.ok) {
+        let errText = '';
+        try { errText = await res.text(); } catch {}
+        throw new Error(`${res.status}${errText ? ' — ' + errText : ''}`);
+      }
+
+      const created = await res.json();
+
+      // append to commentsByIssue
+      setCommentsByIssue(prev => {
+        const list = prev[issueId] ? [...prev[issueId]] : [];
+        list.push(created);
+        return { ...prev, [issueId]: list };
+      });
+
+      // also refresh issues list (optional) so status / counts update
       fetchIssues();
     } catch (e) {
-      alert('Error adding comment: ' + e);
+      alert('Error adding comment: ' + e.message);
+      console.error('Add comment error', e);
     }
   }
 
@@ -124,49 +173,75 @@ export default function AdminDashboard() {
               </td>
             </tr>
           ) : (
-            issues.map((issue) => (
-              <tr key={issue.id}>
-                <td style={cellStyle}>{issue.title}</td>
-                <td style={cellStyle}>{issue.description}</td>
-                <td style={cellStyle}>
-                  {issue.reporterName || issue.reporterEmail || issue.reporterId}
-                </td>
-                <td style={{ ...cellStyle, minWidth: 110 }}>
-                  <span
-                    style={{
-                      background: statusColor(issue.status),
-                      color: '#fff',
-                      padding: '4px 8px',
-                      borderRadius: 6,
-                      fontWeight: 600,
-                      display: 'inline-block',
-                      minWidth: 80,
-                      textAlign: 'center',
-                    }}
-                  >
-                    {issue.status}
-                  </span>
-                </td>
-                <td style={cellStyle}>
-                  {['OPEN', 'IN_PROGRESS', 'RESOLVED', 'VERIFIED'].map((s) => (
-                    <button
-                      key={s}
-                      disabled={issue.status === s}
-                      onClick={() => changeStatus(issue.id, s)}
-                      style={{ marginRight: 6 }}
+            issues.map((issue) => {
+              const comments = commentsByIssue[issue.id] || [];
+              return (
+                <tr key={issue.id}>
+                  <td style={cellStyle}>{issue.title}</td>
+                  <td style={cellStyle}>{issue.description}</td>
+                  <td style={cellStyle}>
+                    {issue.createdByName || issue.reporterName || issue.reporterEmail || issue.reporterId}
+                  </td>
+                  <td style={{ ...cellStyle, minWidth: 110 }}>
+                    <span
+                      style={{
+                        background: statusColor(issue.status),
+                        color: '#fff',
+                        padding: '4px 8px',
+                        borderRadius: 6,
+                        fontWeight: 600,
+                        display: 'inline-block',
+                        minWidth: 80,
+                        textAlign: 'center',
+                      }}
                     >
-                      {s}
-                    </button>
-                  ))}
-                </td>
-                <td style={cellStyle}>
-                  <CommentBox onSubmit={(text) => addComment(issue.id, text)} />
-                  <div style={{ marginTop: 6, color: '#666', fontSize: 12 }}>
-                    Location: {issue.latitude}, {issue.longitude}
-                  </div>
-                </td>
-              </tr>
-            ))
+                      {issue.status}
+                    </span>
+                  </td>
+                  <td style={cellStyle}>
+                    {['OPEN', 'IN_PROGRESS', 'RESOLVED', 'VERIFIED'].map((s) => (
+                      <button
+                        key={s}
+                        disabled={issue.status === s}
+                        onClick={() => changeStatus(issue.id, s)}
+                        style={{ marginRight: 6 }}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </td>
+
+                  <td style={cellStyle}>
+                    <CommentBox
+                      onSubmit={(text) => addComment(issue.id, text)}
+                    />
+                    <div style={{ marginTop: 8 }}>
+                      {comments.length === 0 ? (
+                        <div style={{ color: '#666', fontSize: 12 }}>No feedback yet</div>
+                      ) : (
+                        <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                          {comments.map(c => (
+                            <div key={c.id || c.createdAt} style={{ marginBottom: 8, borderBottom: '1px dashed #eee', paddingBottom: 6 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600 }}>
+                                {c.authorName || c.authorId || 'Anonymous'}
+                                <small style={{ marginLeft: 8, fontWeight: 400, color: '#666' }}>
+                                  {c.createdAt ? new Date(c.createdAt).toLocaleString() : ''}
+                                </small>
+                              </div>
+                              <div style={{ fontSize: 13 }}>{c.message || c.text || c.note}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ marginTop: 6, color: '#666', fontSize: 12 }}>
+                      Location: {issue.latitude}, {issue.longitude}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })
           )}
         </tbody>
       </table>
@@ -203,3 +278,4 @@ function CommentBox({ onSubmit }) {
     </form>
   );
 }
+

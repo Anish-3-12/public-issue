@@ -16,6 +16,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.FieldError;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -24,9 +26,9 @@ import java.util.stream.Collectors;
 
 /**
  * IssueController - handles creating/listing/getting issues,
- * adding/listing comments, and listing timeline events.
+ * updating status, assigning, and listing timeline events.
  *
- * Admin-only operations (assigning and status updates) are protected with @PreAuthorize("hasRole('ADMIN')").
+ * Note: comment listing/creation is handled in CommentController (to avoid duplicate mappings).
  */
 @RestController
 @RequestMapping("/api/v1/issues")
@@ -134,40 +136,6 @@ public class IssueController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    // -------------------- Comments & Events --------------------
-
-    /**
-     * Add a comment to an issue (authenticated users).
-     *
-     * POST /api/v1/issues/{id}/comments
-     */
-    @PostMapping("/{id}/comments")
-    public ResponseEntity<CommentResponse> addComment(
-            @PathVariable("id") String issueId,
-            @Valid @RequestBody CommentCreateRequest req
-    ) {
-        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        if (!(principal instanceof User)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
-        User author = (User) principal;
-
-        CommentResponse created = commentService.createComment(issueId, req, author);
-        // ensure author name present in response
-        created.authorName = author.getName();
-        return ResponseEntity.status(HttpStatus.CREATED).body(created);
-    }
-
-    /**
-     * List comments for an issue.
-     *
-     * GET /api/v1/issues/{id}/comments
-     */
-    @GetMapping("/{id}/comments")
-    public ResponseEntity<List<CommentResponse>> listComments(@PathVariable("id") String issueId) {
-        return ResponseEntity.ok(commentService.listComments(issueId));
-    }
-
     /**
      * List events (timeline) for an issue.
      *
@@ -206,7 +174,3 @@ public class IssueController {
         }
     }
 }
-
-
-
-
