@@ -4,20 +4,20 @@ import MapView from './MapView';
 import CreateIssueForm from './CreateIssueForm';
 import Login from './Login';
 import Signup from './Signup';
+import AdminDashboard from './AdminDashboard';
 
 function App() {
   const [pickedLocation, setPickedLocation] = useState(null);
   const [token, setToken] = useState('');
   const [showSignup, setShowSignup] = useState(false);
+  const [view, setView] = useState('map');
 
-  // load token from localStorage on start (so you stay logged in between reloads)
   useEffect(() => {
     const t = localStorage.getItem('pit_token') || '';
     setToken(t);
   }, []);
 
   function handleLogin(newToken) {
-    // save token to state and localStorage
     setToken(newToken);
     if (newToken) localStorage.setItem('pit_token', newToken);
   }
@@ -25,35 +25,72 @@ function App() {
   function logout() {
     localStorage.removeItem('pit_token');
     setToken('');
-  }
-
-  // convenience: keep localStorage in sync when user types/pastes token in the dev box
-  function handlePasteTokenInput(value) {
-    setToken(value);
-    if (value) {
-      localStorage.setItem('pit_token', value);
-    } else {
-      localStorage.removeItem('pit_token');
-    }
+    setView('map');
   }
 
   function handleSignedUp() {
-    // after signup, switch to login view
     setShowSignup(false);
   }
 
+  function getRoleFromToken(t) {
+    if (!t) return null;
+    try {
+      const parts = t.split('.');
+      if (parts.length < 2) return null;
+      const payload = parts[1];
+      const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base64 + '==='.slice((base64.length + 3) % 4);
+      const json = atob(padded);
+      const obj = JSON.parse(json);
+      if (obj.role) return obj.role;
+      if (obj.roles) return Array.isArray(obj.roles) ? obj.roles[0] : obj.roles;
+      if (obj.user && obj.user.role) return obj.user.role;
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  const role = getRoleFromToken(token);
+  const isAdmin = role === 'ADMIN';
+
   return (
     <div style={{ padding: 20, fontFamily: 'Arial, sans-serif' }}>
-      <h1>Public Issue Tracker (Leaflet)</h1>
+      <h1>Public Issue Tracker</h1>
 
       <div style={{ marginBottom: 12 }}>
         {token ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <strong style={{ color: 'green' }}>Logged in</strong>
+
+            {/* Only show role if ADMIN */}
+            {isAdmin && (
+              <div
+                style={{
+                  fontSize: 13,
+                  color: 'white',
+                  background: 'green',
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                }}
+              >
+                role: ADMIN
+              </div>
+            )}
+
             <button onClick={logout}>Logout</button>
-            <small style={{ marginLeft: 8, color: '#444' }}>
-              (token saved in localStorage)
-            </small>
+
+            <div style={{ marginLeft: 12 }}>
+              <button onClick={() => setView('map')}>Map / Create Issue</button>
+              {isAdmin && (
+                <button
+                  onClick={() => setView('admin')}
+                  style={{ marginLeft: 8 }}
+                >
+                  Open Admin Dashboard
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
@@ -72,7 +109,8 @@ function App() {
                   <h4 style={{ margin: '4px 0' }}>Login</h4>
                   <Login onLogin={handleLogin} />
                   <p style={{ fontSize: 13 }}>
-                    New here? <button onClick={() => setShowSignup(true)}>Sign up</button>
+                    New here?{' '}
+                    <button onClick={() => setShowSignup(true)}>Sign up</button>
                   </p>
                 </>
               )}
@@ -81,50 +119,29 @@ function App() {
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 20 }}>
-        <div style={{ flex: 2 }}>
-          <MapView onPickLocation={setPickedLocation} />
+      {view === 'admin' ? (
+        <div>
+          <div style={{ marginBottom: 12 }}>
+            <button onClick={() => setView('map')}>← Back to Map</button>
+          </div>
+          <AdminDashboard />
         </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 20 }}>
+          <div style={{ flex: 2 }}>
+            <MapView onPickLocation={setPickedLocation} />
+          </div>
 
-        <div style={{ flex: 1 }}>
-          <h3>Create Issue</h3>
-          <p style={{ fontSize: 12 }}>Click on the map to pick location — lat/lng will fill the form.</p>
-
-          <CreateIssueForm token={token} pickedLocation={pickedLocation} />
-
-          {/* Dev helper: paste token box so you can quickly set a JWT during development */}
-          <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #eee' }}>
-            <h4 style={{ margin: '4px 0' }}>Dev: paste JWT token</h4>
-            <input
-              placeholder="Paste JWT token here"
-              value={token}
-              onChange={e => handlePasteTokenInput(e.target.value)}
-              style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-            />
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <button
-                onClick={() => {
-                  // quick reload so components pick up token change if needed
-                  window.location.reload();
-                }}
-              >
-                Reload
-              </button>
-              <button
-                onClick={() => {
-                  handlePasteTokenInput('');
-                  alert('Token cleared from localStorage');
-                }}
-              >
-                Clear token
-              </button>
-            </div>
-            <p style={{ fontSize: 12, color: '#666', marginTop: 8 }}>
-              Tip: after pasting a token, click <strong>Reload</strong> to ensure all components read it.
+          <div style={{ flex: 1 }}>
+            <h3>Create Issue</h3>
+            <p style={{ fontSize: 12 }}>
+              Click on the map to pick location — lat/lng will fill the form.
             </p>
+
+            <CreateIssueForm token={token} pickedLocation={pickedLocation} />
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
